@@ -27,11 +27,20 @@ export interface SessionState {
     requirementCount: number | null;
     quantity: number | null;
   };
-  quote: Record<string, unknown> | null;
+  quote: {
+    packageName: string;
+    planCode: string;
+    requirementCount: number;
+    quantity: number;
+    discountPercent: number;
+    promoCode: string | null;
+    finalPriceCents: number;
+    [key: string]: unknown;
+  } | null;
   booking: {
     status: string;
     idempotencyKey: string | null;
-    record: Record<string, unknown> | null;
+    record: { booking_id: string; [key: string]: unknown } | null;
     error: string | null;
   };
   toolEvents: ToolEvent[];
@@ -46,6 +55,8 @@ export interface AgentTurnResponse {
 
 export interface ConversationMessage {
   id: string;
+  requestId: string;
   role: "user" | "agent";
   text: string;
+  status?: "pending" | "error";
 }

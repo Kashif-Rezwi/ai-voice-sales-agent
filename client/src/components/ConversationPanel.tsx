@@ -5,26 +5,35 @@ interface ConversationPanelProps {
   messages: ConversationMessage[];
   stage: SessionStage;
   sessionReady: boolean;
-  pendingTurns: number;
   isListening: boolean;
   voiceSupported: boolean;
   interimTranscript: string;
   onSend: (message: string) => void;
+  onRetry: (requestId: string) => void;
   onStartListening: () => void;
   onStopListening: () => void;
 }
 
+const stageLabels: Record<SessionStage, string> = {
+  COLLECTING: "Finding your fit",
+  AWAITING_CONFIRMATION: "Quote ready",
+  BOOKING: "Booking in progress",
+  BOOKED: "Booked",
+  BOOKING_FAILED: "Booking needs retry",
+};
+
 export function ConversationPanel(props: ConversationPanelProps) {
   const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (props.sessionReady) inputRef.current?.focus({ preventScroll: true });
   }, [props.sessionReady]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    const history = historyRef.current;
+    if (history) history.scrollTop = history.scrollHeight;
   }, [props.messages]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -33,6 +42,13 @@ export function ConversationPanel(props: ConversationPanelProps) {
     if (!message || !props.sessionReady) return;
     setDraft("");
     props.onSend(message);
+  }
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }
   }
 
   function handleTalkKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -50,89 +66,92 @@ export function ConversationPanel(props: ConversationPanelProps) {
   }
 
   return (
-    <section className="conversation-panel" aria-labelledby="conversation-title">
-      <div className="section-heading">
-        <div>
-          <p className="section-kicker">Conversation</p>
-          <h2 id="conversation-title">Build an exact quote</h2>
-        </div>
-        <span className={`badge badge-${props.stage.toLowerCase()}`}>{props.stage}</span>
+    <section className="conversation-panel" aria-label="Sales chat">
+      <div className="chat-heading">
+        <span className="chat-heading-title">Conversation</span>
+        <span className={`stage stage-${props.stage.toLowerCase()}`} role="status">
+          {stageLabels[props.stage]}
+        </span>
       </div>
 
-      <div className="conversation" aria-live="polite" aria-label="Conversation history">
+      <div ref={historyRef} className="conversation" role="log" aria-label="Conversation history" aria-live="polite">
         {props.messages.length === 0 ? (
           <div className="empty-state">
-            <span className="empty-mark" aria-hidden="true">↗</span>
-            <p>Try “Arrow mesh Wi-Fi PRO for five rooms.”</p>
-            <small>Every price and booking is verified by deterministic server rules.</small>
+            <span className="welcome-mark" aria-hidden="true">S</span>
+            <h2>What can I help you find?</h2>
+            <p>Tell me the product, plan, and how many rooms or people you need. I’ll calculate the exact quote before you book.</p>
+            <p className="example">Try: “Arrow mesh wifi PRO for five rooms”</p>
           </div>
         ) : (
           props.messages.map((message) => (
-            <article key={message.id} className={`message ${message.role}`}>
-              <span className="role">{message.role === "user" ? "You" : "Sales agent"}</span>
-              <span>{message.text}</span>
+            <article key={message.id} className={`message-row ${message.role}`}>
+              <span className="message-author">{message.role === "user" ? "You" : "Sales assistant"}</span>
+              <div className={`message-bubble${message.status ? ` ${message.status}` : ""}`}>
+                {message.status === "pending" ? (
+                  <span className="typing" role="status">Working on your reply<span aria-hidden="true">…</span></span>
+                ) : (
+                  <span>{message.text}</span>
+                )}
+              </div>
+              {message.status === "error" && (
+                <button type="button" className="retry-button" onClick={() => props.onRetry(message.requestId)}>
+                  Retry this message
+                </button>
+              )}
             </article>
           ))
         )}
-        <div ref={endRef} />
       </div>
 
-      <p className="live-transcript" aria-live="polite">
-        {props.interimTranscript ? `Hearing: ${props.interimTranscript}` : ""}
-      </p>
-
-      <form className="composer" onSubmit={submit}>
-        <label className="sr-only" htmlFor="message-input">Message the sales agent</label>
-        <input
-          ref={inputRef}
-          id="message-input"
-          name="message"
-          type="text"
-          autoComplete="off"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask about a package, plan, or price…"
-          disabled={!props.sessionReady}
-          required
-        />
-        <button
-          type="submit"
-          className="send-button"
-          disabled={!props.sessionReady || !draft.trim()}
-        >
-          Send
-        </button>
-        <button
-          type="button"
-          className={`talk-button${props.isListening ? " listening" : ""}`}
-          disabled={!props.sessionReady || !props.voiceSupported}
-          aria-describedby="voice-help"
-          aria-pressed={props.isListening}
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture(event.pointerId);
-            props.onStartListening();
-          }}
-          onPointerUp={props.onStopListening}
-          onPointerCancel={props.onStopListening}
-          onKeyDown={handleTalkKeyDown}
-          onKeyUp={handleTalkKeyUp}
-        >
-          {props.voiceSupported
-            ? props.isListening
-              ? "Release to send"
-              : "Hold to talk"
-            : "Voice unavailable"}
-        </button>
-      </form>
-      <div className="composer-meta">
-        <p id="voice-help">
-          Free browser speech recognition. Spoken output is AI-generated.
-        </p>
-        {props.pendingTurns > 0 && (
-          <p className="pending" role="status">
-            Processing {props.pendingTurns} {props.pendingTurns === 1 ? "turn" : "turns"}…
+      <div className="composer-area">
+        {props.isListening && (
+          <p className="live-transcript" role="status">
+            {props.interimTranscript || "Listening…"}
           </p>
         )}
+        <form className="composer" onSubmit={submit}>
+          <label className="sr-only" htmlFor="message-input">Message the sales assistant</label>
+          <textarea
+            ref={inputRef}
+            id="message-input"
+            name="message"
+            rows={1}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder={props.sessionReady ? "Message the sales assistant…" : "Connecting to chat…"}
+            disabled={!props.sessionReady}
+          />
+          {props.voiceSupported && (
+            <button
+              type="button"
+              className={`talk-button${props.isListening ? " listening" : ""}`}
+              disabled={!props.sessionReady}
+              aria-label={props.isListening ? "Release to send voice message" : "Hold to talk"}
+              aria-pressed={props.isListening}
+              title="Hold to talk"
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                props.onStartListening();
+              }}
+              onPointerUp={props.onStopListening}
+              onPointerCancel={props.onStopListening}
+              onKeyDown={handleTalkKeyDown}
+              onKeyUp={handleTalkKeyUp}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" />
+              </svg>
+            </button>
+          )}
+          <button type="submit" className="send-button" disabled={!props.sessionReady || !draft.trim()}>
+            Send
+          </button>
+        </form>
+        <p className="composer-hint">
+          Enter to send · Shift+Enter for a new line{props.voiceSupported ? " · Hold the mic to speak" : ""}
+        </p>
       </div>
     </section>
   );
