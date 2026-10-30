@@ -135,7 +135,7 @@ export function App() {
     voice.startListening();
   }, [voice]);
 
-  const status = error && !session
+  const statusLabel = error && !session
     ? "Connection failed"
     : !session
       ? "Connecting"
@@ -143,19 +143,50 @@ export function App() {
         ? "Replying"
         : "Ready";
 
+  const statusDotClass = error && !session
+    ? "failed"
+    : !session
+      ? "connecting"
+      : "";
+
+  const shortSessionId = session?.sessionId
+    ? session.sessionId.slice(-8).toUpperCase()
+    : null;
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <div>
-            <h1>Sales assistant</h1>
-            <p>Find a package, get a quote, book with confidence.</p>
+          {/* Brand mark with wifi/voice wave icon */}
+          <div className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2 10a10.06 10.06 0 0 1 20 0" opacity="0.4" />
+              <path d="M5 12.5a7 7 0 0 1 14 0" opacity="0.65" />
+              <path d="M8.5 15a3.5 3.5 0 0 1 7 0" />
+              <circle cx="12" cy="18" r="1" fill="currentColor" stroke="none" />
+            </svg>
+          </div>
+          <div className="brand-text">
+            <h1>VoiceIQ Sales</h1>
+            <p>AI-powered quotes &amp; booking</p>
           </div>
         </div>
+
         <div className="header-actions">
-          <span className="connection" role="status"><span className="status-dot" />{status}</span>
+          <span className="connection" role="status">
+            <span className={`status-dot ${statusDotClass}`} />
+            {statusLabel}
+          </span>
+          {shortSessionId && (
+            <span className="session-id" aria-label={`Session ID: ${shortSessionId}`}>
+              #{shortSessionId}
+            </span>
+          )}
           <button type="button" className="header-button" onClick={() => beginSession()}>
+            {/* Plus / reset icon */}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
             New chat
           </button>
           <button
@@ -164,7 +195,17 @@ export function App() {
             onClick={() => setDetailsOpen(true)}
             aria-haspopup="dialog"
           >
-            Details{session?.toolEvents.length ? ` · ${session.toolEvents.length}` : ""}
+            {/* Inspect / layers icon */}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18M9 21V9" />
+            </svg>
+            Details
+            {(session?.toolEvents.length ?? 0) > 0 && (
+              <span className="tool-badge" aria-label={`${session!.toolEvents.length} API calls`}>
+                {session!.toolEvents.length}
+              </span>
+            )}
           </button>
         </div>
       </header>
