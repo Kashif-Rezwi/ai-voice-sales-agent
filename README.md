@@ -1,6 +1,6 @@
 # AI Voice Sales Agent
 
-A React/TypeScript sales console backed by an Express sales agent that uses an LLM only to extract user intent. Catalog matching, capacity math, discount progression, quote confirmation, booking, and idempotency are deterministic application rules.
+A sales chat app with a React interface and an Express server. You can type or speak a request, get a quote, negotiate within fixed rules, and confirm a mock booking. Gemini or Groq helps understand the wording; the server decides the product, quantity, price, discount, and booking.
 
 Project guides:
 
@@ -38,9 +38,9 @@ npm start
 
 Then open [http://localhost:3000](http://localhost:3000). Express serves the compiled React app and the API from one process.
 
-The default path is cost-free: `INTENT_MODE=gemini` uses `gemini-3.1-flash-lite` on the Gemini Developer API free tier, and the browser uses its built-in speech recognition and synthesis APIs. Add a free Google AI Studio key as `GEMINI_API_KEY`.
+The default model setting is `INTENT_MODE=gemini` with `gemini-3.1-flash-lite`. Put a Google AI Studio key in `GEMINI_API_KEY` in `.env` to use it. Without a key, the app uses its basic deterministic intent parser when `ALLOW_DETERMINISTIC_FALLBACK=true` (the default). The browser uses its built-in speech recognition and speech synthesis APIs.
 
-Groq is supported with `INTENT_MODE=groq`, `GROQ_API_KEY`, and the strict-output `openai/gpt-oss-20b` model. A deterministic fallback is also included. No paid model is selected automatically.
+To use Groq instead, set `INTENT_MODE=groq` and `GROQ_API_KEY` in `.env`; the configured model is `openai/gpt-oss-20b`. To verify that a live model is actually working, set `ALLOW_DETERMINISTIC_FALLBACK=false`. Then a model error produces a safe error response instead of silently using the basic parser.
 
 ## API
 
@@ -62,11 +62,32 @@ Groq is supported with `INTENT_MODE=groq`, `GROQ_API_KEY`, and the strict-output
 
 ## Architecture
 
-The per-session mutex serializes state transitions. Every selection mutation increments a version and invalidates the quote. A quote records the selection version and the turn when it was shown; confirmation is accepted only on a later turn. The booking service independently validates the payload and caches both in-flight promises and completed results by a server-derived idempotency key.
+Think of the app as one conversation moving through five parts:
 
-Unknown or ambiguous product requests clear an earlier selection, so a later confirmation cannot accidentally book an old quote. `POST /api/bookings` is the mock downstream tool endpoint; the conversation endpoint enforces the confirmation and discount sequence before calling it.
+```text
+You (type or speak)
+    ↓
+React chat screen
+    ↓  sends your message
+Express server
+    ├─ Gemini/Groq (or the fallback parser): reads your intent
+    └─ SalesAgent: checks the catalog, calculates quantity and price,
+                   applies discount rules, and decides what happens next
+         ├─ SessionManager: remembers the current quote and booking status
+         └─ BookingService: creates one mock booking after confirmation
+    ↓
+React shows the reply, current state, and exact tool calls
+```
 
-The React app uses the Web Speech APIs for free transcription and synthesis. Each finalized transcript gets a generated `voice_<uuid>` request ID and is sent through the same HTTP message endpoint as typed text. Browser speech synthesis reads the canonical backend reply, so a conversational voice model cannot improvise a price or promo code.
+For example, you say `Arrow mesh wifi PRO for five rooms`. The intent parser reads your request. The server matches AeroMesh, sees that each unit covers two rooms, calculates `Math.ceil(5 / 2) = 3`, and quotes **$1,497.00**. The parser never supplies that price. If you say `Too expensive`, the server offers `SAVE10`; another objection can unlock `CLOSENOW15`. If you change to seven rooms, the server makes a new quote for four units and waits for you to confirm that new price on a later message.
+
+A **session** is the server's memory for one conversation. It stores the selected package, plan, room count, discount level, latest quote, and booking status. Messages for the same session are handled one at a time, so a change cannot race with a booking. Each request also has a unique `requestId`; retrying the same request returns its saved result.
+
+After an explicit `Yes, book it`, the server checks that the quoted details are still current. `BookingService` checks the price again and uses a unique **idempotency key** for that quote. If two confirmations arrive quickly, they resolve to the same booking ID instead of creating two bookings. The React inspector shows the exact `get_catalog_info` and `create_booking` payloads so you can verify this yourself.
+
+Voice follows the same path as typed chat: the browser turns speech into text, sends that text to the message API, and speaks only the server's reply. `POST /api/bookings` is the mock downstream booking endpoint for testing; the conversation route is what enforces the quote and confirmation rules.
+
+For the detailed state machine and schema diagrams, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Challenge limitations
 
